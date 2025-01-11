@@ -52,5 +52,22 @@ def video_feed():
 def get_data():
     return jsonify(analyzer.get_exercise_data())
 
+@app.route("/reset", methods=["POST"])
+def reset_data():
+    # Reset the exercise data in the analyzer
+    analyzer.exercise_data = {
+        "pushups": 0,
+        "squats": 0,
+        "jumping_jacks": 0,
+        "planks": 0,
+    }
+    analyzer.states = {
+        "pushup": None,
+        "squat": None,
+        "jumping_jack": None,
+        "plank": None,
+    }
+    return jsonify({"status": "success", "message": "Exercise data reset successfully."})
+
 if __name__ == "__main__":
     app.run(debug=True)
