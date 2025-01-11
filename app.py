@@ -69,5 +69,5 @@ def reset_data():
     }
     return jsonify({"status": "success", "message": "Exercise data reset successfully."})
 
-if __name__ == "__main__":
-    app.run(debug=True)
+# if __name__ == "__main__":
+#     app.run(debug=True)
