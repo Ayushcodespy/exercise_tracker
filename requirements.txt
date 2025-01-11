@@ -1,6 +1,6 @@
 Flask==3.0.0
-opencv-python==4.8.0
+opencv-python==4.8.0.76  # Use a compatible version
 mediapipe==0.10.0
 numpy==1.23.5
 filterpy==1.4.5
-Werkzeug==3.0.4
+Werkzeug==3.0.
