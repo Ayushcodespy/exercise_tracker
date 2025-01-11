@@ -5,25 +5,26 @@ from filterpy.kalman import KalmanFilter
 
 class ExerciseAnalyzer:
     def __init__(self):
-        self.pose = mp.solutions.pose.Pose()
+        self.pose = mp.solutions.pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
         self.mp_drawing = mp.solutions.drawing_utils
         self.exercise_data = {
             "pushups": 0,
-            "leg_raises": 0,
-            "pull_ups": 0,
-            "pull_downs": 0,
+            "squats": 0,
+            "jumping_jacks": 0,
+            "planks": 0,
         }
         self.states = {
             "pushup": None,
-            "leg_raise": None,
-            "pull_up": None,
-            "pull_down": None,
+            "squat": None,
+            "jumping_jack": None,
+            "plank": None,
         }
         self.kalman_filters = {}
 
     def process_frame(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.pose.process(rgb_frame)
+        feedback = []
 
         if results.pose_landmarks:
             self.mp_drawing.draw_landmarks(
@@ -31,12 +32,12 @@ class ExerciseAnalyzer:
             )
             landmarks = results.pose_landmarks.landmark
             self._smooth_landmarks(landmarks)
-            self._analyze_pushups(landmarks)
-            self._analyze_leg_raises(landmarks)
-            self._analyze_pull_ups(landmarks)
-            self._analyze_pull_downs(landmarks)
+            self._analyze_pushups(landmarks, feedback)
+            self._analyze_squats(landmarks, feedback)
+            self._analyze_jumping_jacks(landmarks, feedback)
+            self._analyze_planks(landmarks, feedback)
 
-        return frame, self.exercise_data
+        return frame, self.exercise_data, feedback
 
     def _smooth_landmarks(self, landmarks):
         """ Apply Kalman Filter to smooth landmark positions. """
@@ -45,8 +46,10 @@ class ExerciseAnalyzer:
                 self.kalman_filters[idx] = self._create_kalman_filter()
             kf = self.kalman_filters[idx]
             kf.predict()
-            kf.update(np.array([landmark.x, landmark.y]))
-            landmark.x, landmark.y = kf.x[0], kf.x[1]
+            kf.update(np.array([landmark.x, landmark.y], dtype=np.float32))
+            # Convert Kalman filter state to float
+            landmark.x = float(kf.x[0])
+            landmark.y = float(kf.x[1])
 
     def _create_kalman_filter(self):
         """ Create a Kalman Filter for 2D position tracking. """
@@ -63,7 +66,7 @@ class ExerciseAnalyzer:
         kf.Q = np.eye(4) * 0.1
         return kf
 
-    def _analyze_pushups(self, landmarks):
+    def _analyze_pushups(self, landmarks, feedback):
         """ Analyze elbow and shoulder angle for pushups. """
         left_shoulder = landmarks[mp.solutions.pose.PoseLandmark.LEFT_SHOULDER.value]
         left_elbow = landmarks[mp.solutions.pose.PoseLandmark.LEFT_ELBOW.value]
@@ -74,50 +77,59 @@ class ExerciseAnalyzer:
         if angle > 160:  # Arms straight
             if self.states["pushup"] == "down":
                 self.exercise_data["pushups"] += 1
+                feedback.append("Pushup completed!")
             self.states["pushup"] = "up"
         elif angle < 90:  # Arms bent
             self.states["pushup"] = "down"
 
-    def _analyze_leg_raises(self, landmarks):
-        """ Analyze hip and knee angle for leg raises. """
+    def _analyze_squats(self, landmarks, feedback):
+        """ Analyze hip and knee angles for squats. """
         left_hip = landmarks[mp.solutions.pose.PoseLandmark.LEFT_HIP.value]
         left_knee = landmarks[mp.solutions.pose.PoseLandmark.LEFT_KNEE.value]
         left_ankle = landmarks[mp.solutions.pose.PoseLandmark.LEFT_ANKLE.value]
 
-        angle = self._calculate_angle(left_hip, left_knee, left_ankle)
+        hip_knee_angle = self._calculate_angle(left_hip, left_knee, left_ankle)
 
-        if angle > 150:  # Legs straight
-            if self.states["leg_raise"] == "down":
-                self.exercise_data["leg_raises"] += 1
-            self.states["leg_raise"] = "up"
-        elif angle < 90:  # Legs bent
-            self.states["leg_raise"] = "down"
+        if hip_knee_angle > 160:  # Standing
+            self.states["squat"] = "up"
+        elif hip_knee_angle < 90 and self.states["squat"] == "up":  # Squatting
+            self.states["squat"] = "down"
+            self.exercise_data["squats"] += 1
+            feedback.append("Squat completed!")
 
-    def _analyze_pull_ups(self, landmarks):
-        """ Analyze hand position for pull-ups. """
-        left_hand = landmarks[mp.solutions.pose.PoseLandmark.LEFT_WRIST.value]
+    def _analyze_jumping_jacks(self, landmarks, feedback):
+        """ Analyze arm and leg positions for jumping jacks. """
         left_shoulder = landmarks[mp.solutions.pose.PoseLandmark.LEFT_SHOULDER.value]
+        left_hip = landmarks[mp.solutions.pose.PoseLandmark.LEFT_HIP.value]
+        left_wrist = landmarks[mp.solutions.pose.PoseLandmark.LEFT_WRIST.value]
+        left_ankle = landmarks[mp.solutions.pose.PoseLandmark.LEFT_ANKLE.value]
+        left_knee = landmarks[mp.solutions.pose.PoseLandmark.LEFT_KNEE.value]  # Define left_knee
 
-        if left_hand.y < left_shoulder.y - 0.1:  # Hand above shoulder
-            if self.states["pull_up"] == "down":
-                self.exercise_data["pull_ups"] += 1
-            self.states["pull_up"] = "up"
-        elif left_hand.y > left_shoulder.y + 0.1:  # Hand below shoulder
-            self.states["pull_up"] = "down"
+        arm_angle = self._calculate_angle(left_shoulder, left_hip, left_wrist)
+        leg_angle = self._calculate_angle(left_hip, left_knee, left_ankle)  # Use left_knee here
 
-    def _analyze_pull_downs(self, landmarks):
-        """ Analyze hand distance from shoulder for pull-downs. """
-        left_hand = landmarks[mp.solutions.pose.PoseLandmark.LEFT_WRIST.value]
+        if arm_angle > 150 and leg_angle > 150:  # Arms and legs spread
+            if self.states["jumping_jack"] == "closed":
+                self.exercise_data["jumping_jacks"] += 1
+                feedback.append("Jumping jack completed!")
+            self.states["jumping_jack"] = "open"
+        elif arm_angle < 90 and leg_angle < 90:  # Arms and legs closed
+            self.states["jumping_jack"] = "closed"
+
+    def _analyze_planks(self, landmarks, feedback):
+        """ Analyze body alignment for planks. """
         left_shoulder = landmarks[mp.solutions.pose.PoseLandmark.LEFT_SHOULDER.value]
+        left_hip = landmarks[mp.solutions.pose.PoseLandmark.LEFT_HIP.value]
+        left_ankle = landmarks[mp.solutions.pose.PoseLandmark.LEFT_ANKLE.value]
 
-        distance = np.abs(left_hand.y - left_shoulder.y)
+        body_angle = self._calculate_angle(left_shoulder, left_hip, left_ankle)
 
-        if distance > 0.2:  # Hands away from shoulders
-            if self.states["pull_down"] == "up":
-                self.exercise_data["pull_downs"] += 1
-            self.states["pull_down"] = "down"
-        elif distance < 0.1:  # Hands near shoulders
-            self.states["pull_down"] = "up"
+        if 160 < body_angle < 200:  # Body straight
+            self.states["plank"] = "correct"
+            feedback.append("Plank form is correct!")
+        else:
+            self.states["plank"] = "incorrect"
+            feedback.append("Plank form is incorrect. Straighten your body.")
 
     def _calculate_angle(self, point1, point2, point3):
         """ Calculate the angle between three points using vector mathematics. """

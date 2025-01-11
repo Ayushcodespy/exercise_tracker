@@ -1,11 +1,19 @@
 from flask import Flask, render_template, Response, jsonify
 import cv2
 from exercise_analyzer import ExerciseAnalyzer
+import logging
 
 app = Flask(__name__)
 
 # Initialize video capture and exercise analyzer
-video_capture = cv2.VideoCapture(0)  # Open default camera
+try:
+    video_capture = cv2.VideoCapture(0)  # Open default camera
+    if not video_capture.isOpened():
+        raise RuntimeError("Could not open camera. Please check if the camera is connected.")
+except Exception as e:
+    logging.error(f"Error initializing camera: {e}")
+    video_capture = None
+
 analyzer = ExerciseAnalyzer()
 
 @app.route("/")
@@ -14,12 +22,17 @@ def index():
 
 def generate_frames():
     while True:
+        if video_capture is None:
+            logging.error("Camera not initialized. Cannot generate frames.")
+            break
+
         success, frame = video_capture.read()
         if not success:
+            logging.error("Failed to read frame from camera.")
             break
 
         # Analyze frame for exercise
-        frame, exercise_data = analyzer.process_frame(frame)
+        frame, exercise_data, feedback = analyzer.process_frame(frame)
 
         # Encode frame for live streaming
         _, buffer = cv2.imencode('.jpg', frame)
@@ -31,6 +44,8 @@ def generate_frames():
 
 @app.route("/video_feed")
 def video_feed():
+    if video_capture is None:
+        return "Camera not initialized. Please check your camera connection.", 500
     return Response(generate_frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 @app.route("/data")
